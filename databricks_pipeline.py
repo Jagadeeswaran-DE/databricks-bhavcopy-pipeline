@@ -11,10 +11,13 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import sys
 import time
 import threading
+from datetime import date
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, current_timestamp, regexp_extract, to_date
@@ -59,6 +62,7 @@ def parse_args() -> argparse.Namespace:
             "extract_schema",
             "validate_schema",
             "publish",
+            "archive",
             "notify_summary",
         ),
         help="Pipeline stage executed by this Databricks task.",
@@ -84,6 +88,57 @@ def expected_chunks(start: str, end: str) -> int:
     return ((date.fromisoformat(end) - date.fromisoformat(start)).days // 10) + 1
 
 
+def resolve_runtime_dates(args: argparse.Namespace) -> None:
+    """Resolve bundle's ``auto`` date values using the business timezone."""
+    today = date.today()
+    try:
+        today = date.today()  # Databricks workers use the job's local date.
+        today = date.fromisoformat(
+            __import__("datetime").datetime.now(ZoneInfo("Asia/Kolkata")).date().isoformat()
+        )
+    except Exception:
+        pass
+    if str(args.date_range_start).lower() in {"auto", "today"}:
+        args.date_range_start = today.isoformat()
+    if str(args.date_range_end).lower() in {"auto", "today"}:
+        args.date_range_end = today.isoformat()
+
+
+def archive_processed(data_path: Path, target_schema: str, spark: SparkSession,
+                      args: argparse.Namespace) -> None:
+    """Move successfully processed active inputs into a durable processed area."""
+    started = utc_now()
+    ensure_audit_table(spark, target_schema)
+    counts = {}
+    for name in ("downloads", "extracted", "organized"):
+        source = data_path / name
+        destination = data_path / "processed" / name
+        moved = 0
+        if source.exists():
+            for item in list(source.iterdir()):
+                destination.mkdir(parents=True, exist_ok=True)
+                target = destination / item.name
+                if target.exists():
+                    if item.is_dir():
+                        shutil.copytree(item, target, dirs_exist_ok=True)
+                        shutil.rmtree(item)
+                    else:
+                        item.unlink()
+                else:
+                    shutil.move(str(item), str(target))
+                moved += 1
+        counts[name] = moved
+    ended = utc_now()
+    write_audit(
+        spark, target_schema, run_id=args.run_id, task_name="archive",
+        status="SUCCEEDED", start_time=started, end_time=ended,
+        input_count=sum(counts.values()), output_count=sum(counts.values()),
+        message=json.dumps(counts), date_range_start=args.date_range_start,
+        date_range_end=args.date_range_end,
+    )
+    task_progress("NODE COMPLETE | archive")
+
+
 def run_stage(stage: str, data_path: Path, args: argparse.Namespace) -> None:
     os.chdir(data_path)
     spark = SparkSession.builder.getOrCreate()
@@ -100,9 +155,16 @@ def run_stage(stage: str, data_path: Path, args: argparse.Namespace) -> None:
     task_progress(f"NODE START | {stage}")
     try:
         if stage == "download":
+            before_downloads = len(list((data_path / "downloads").glob("*.zip")))
             os.environ["BHAVCOPY_START_DATE"] = args.date_range_start
             os.environ["BHAVCOPY_END_DATE"] = args.date_range_end
             require_success("downloader", bhavcopy_downloader.run())
+            after_downloads = len(list((data_path / "downloads").glob("*.zip")))
+            download_counts = {
+                "new_files": max(after_downloads - before_downloads, 0),
+                "existing_files": before_downloads,
+                "total_files": after_downloads,
+            }
         else:
             stages = {
                 "extract": ("extractor", bhavcopy_extractor.run),
@@ -116,7 +178,11 @@ def run_stage(stage: str, data_path: Path, args: argparse.Namespace) -> None:
         write_audit(spark, args.target_schema, run_id=args.run_id, task_name=task_name,
                     status="SUCCEEDED", start_time=started, end_time=ended,
                     date_range_start=args.date_range_start, date_range_end=args.date_range_end,
-                    message="Task completed")
+                    message=json.dumps(download_counts) if stage == "download" else "Task completed",
+                    input_count=(download_counts.get("total_files") if stage == "download" else None),
+                    output_count=(download_counts.get("total_files") if stage == "download" else None),
+                    new_count=(download_counts.get("new_files") if stage == "download" else None),
+                    existing_count=(download_counts.get("existing_files") if stage == "download" else None))
         task_progress(f"NODE COMPLETE | {stage}")
     except Exception as exc:
         ended = utc_now()
@@ -186,9 +252,9 @@ def publish_tables(data_path: Path, target_schema: str, spark: SparkSession, arg
             "total_files": len(source_names), "new_records": new_records,
             "existing_records": total_records - new_records, "total_records": total_records,
         }
-        (frame.write.mode("overwrite")
-            .option("overwriteSchema", "true")
-            .saveAsTable(table_name))
+        if new_names:
+            (frame.where(col("_source_file").isin(list(new_names))).write
+                .mode("append").option("mergeSchema", "true").saveAsTable(table_name))
         task_progress(
             f"PUBLISH [{index}/{len(EXCHANGES)}] COMPLETE | {table_name}"
         )
@@ -217,7 +283,7 @@ def notify_summary(args: argparse.Namespace) -> None:
         if row.task_name not in latest or key > latest[row.task_name][0]:
             latest[row.task_name] = (key, row)
     rows = [latest[name][1] for name in sorted(latest)]
-    expected = {"download", "extract", "organize", "schema_extraction", "validation", "publish"}
+    expected = {"download", "extract", "organize", "schema_extraction", "validation", "publish", "archive"}
     overall = "SUCCEEDED" if expected.issubset(latest) and all(
         latest[name][1].status in {"SUCCEEDED", "SKIPPED"} for name in expected
     ) else "FAILED"
@@ -243,14 +309,21 @@ def notify_summary(args: argparse.Namespace) -> None:
     for exchange in EXCHANGES:
         d = details.get(exchange, {k: 0 for k in ("new_files", "existing_files", "total_files", "new_records", "existing_records", "total_records")})
         table_rows.append([f"bhavcopy_{exchange}", d["new_files"], d["existing_files"], d["total_files"], d["new_records"], d["existing_records"], d["total_records"]])
-    zip_total = len(list((Path(args.data_path) / "downloads").glob("*.zip")))
+    archive_row = latest.get("archive", (None, None))[1]
+    archive_counts = {}
+    if archive_row and archive_row.message:
+        try:
+            archive_counts = json.loads(archive_row.message)
+        except (TypeError, json.JSONDecodeError):
+            archive_counts = {}
+    zip_total = int(archive_counts.get("downloads", 0))
     download_row = latest.get("download", (None, None))[1]
     zip_new = int(download_row.new_count or 0) if download_row else 0
     zip_existing = max(zip_total - zip_new, 0)
     csv_new = sum(int(details.get(exchange, {}).get("new_files", 0)) for exchange in EXCHANGES)
-    csv_total = sum(int(details.get(exchange, {}).get("total_files", 0)) for exchange in EXCHANGES)
+    csv_total = sum(int(details.get(exchange, {}).get("new_files", 0)) for exchange in EXCHANGES)
     csv_existing = max(csv_total - csv_new, 0)
-    task_order = ["download", "extract", "organize", "schema_extraction", "validation", "publish"]
+    task_order = ["download", "extract", "organize", "schema_extraction", "validation", "publish", "archive"]
     task_rows = []
     for name in task_order:
         if name in latest:
@@ -271,6 +344,7 @@ def notify_summary(args: argparse.Namespace) -> None:
 
 def main() -> None:
     args = parse_args()
+    resolve_runtime_dates(args)
     data_path = Path(args.data_path).resolve()
     downloads = data_path / "downloads"
     if args.stage == "extract" and (
@@ -290,6 +364,8 @@ def main() -> None:
                         status="FAILED", end_time=ended, date_range_start=args.date_range_start,
                         date_range_end=args.date_range_end, error_message=str(exc), message="Task failed")
             raise
+    elif args.stage == "archive":
+        archive_processed(data_path, args.target_schema, SparkSession.builder.getOrCreate(), args)
     elif args.stage == "notify_summary":
         notify_summary(args)
     else:

@@ -3,6 +3,10 @@ resources:
     bhavcopy_processing:
       name: ${bundle.target}-bhavcopy-processing
       description: Download, extract, organize, validate, and publish Samco BhavCopy data.
+      schedule:
+        quartz_cron_expression: "0 0 19 * * ?"
+        timezone_id: "Asia/Kolkata"
+        pause_status: UNPAUSED
       queue:
         enabled: true
       tasks:
@@ -174,12 +178,40 @@ resources:
             - task_key: extract_schemas
             - task_key: validate_schemas
             - task_key: publish_delta_tables
+            - task_key: archive_processed
           run_if: ALL_DONE
           spark_python_task:
             python_file: ../databricks_pipeline.py
             parameters:
               - --stage
               - notify_summary
+              - --data-path
+              - /Volumes/stock_project/market_data/pipeline_files
+              - --target-schema
+              - stock_project.market_data
+              - --run-id
+              - "{{job.run_id}}"
+              - --job-run-id
+              - "{{job.id}}"
+              - --date-range-start
+              - ${var.date_range_start}
+              - --date-range-end
+              - ${var.date_range_end}
+              - --google-chat-enabled
+              - ${var.google_chat_enabled}
+              - --google-chat-webhook-secret-scope
+              - ${var.google_chat_webhook_secret_scope}
+              - --google-chat-webhook-secret-key
+              - ${var.google_chat_webhook_secret_key}
+          environment_key: default
+        - task_key: archive_processed
+          depends_on:
+            - task_key: publish_delta_tables
+          spark_python_task:
+            python_file: ../databricks_pipeline.py
+            parameters:
+              - --stage
+              - archive
               - --data-path
               - /Volumes/stock_project/market_data/pipeline_files
               - --target-schema

@@ -15,11 +15,11 @@ variables:
     description: Databricks secret key containing the Chat webhook.
     default: ""
   date_range_start:
-    description: Inclusive BhavCopy date range start.
-    default: "2019-01-01"
+    description: Inclusive BhavCopy date range start. Use auto for the scheduled trading day.
+    default: "auto"
   date_range_end:
-    description: Inclusive BhavCopy date range end.
-    default: "2020-12-31"
+    description: Inclusive BhavCopy date range end. Use auto for the scheduled trading day.
+    default: "auto"
 
 # Keep large local data artifacts out of the workspace deployment. Raw ZIPs are
 # uploaded explicitly to the Unity Catalog volume by scripts/upload_raw_to_databricks.ps1.
