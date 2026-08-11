@@ -1,0 +1,14 @@
+.venv/
+.ua/
+__pycache__/
+*.py[cod]
+downloads/
+extracted/
+organized/
+logs/
+screenshots/
+schemas/
+*.csv
+schema_validation_report.json
+state.json
+.databricks/

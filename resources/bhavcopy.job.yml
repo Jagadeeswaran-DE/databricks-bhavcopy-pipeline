@@ -1,0 +1,205 @@
+resources:
+  jobs:
+    bhavcopy_processing:
+      name: ${bundle.target}-bhavcopy-processing
+      description: Download, extract, organize, validate, and publish Samco BhavCopy data.
+      queue:
+        enabled: true
+      tasks:
+        - task_key: download_bhavcopy
+          spark_python_task:
+            python_file: ../databricks_pipeline.py
+            parameters:
+              - --stage
+              - download
+              - --data-path
+              - /Volumes/stock_project/market_data/pipeline_files
+              - --target-schema
+              - stock_project.market_data
+              - --run-id
+              - "{{job.run_id}}"
+              - --job-run-id
+              - "{{job.id}}"
+              - --date-range-start
+              - ${var.date_range_start}
+              - --date-range-end
+              - ${var.date_range_end}
+              - --google-chat-enabled
+              - ${var.google_chat_enabled}
+              - --google-chat-webhook-secret-scope
+              - ${var.google_chat_webhook_secret_scope}
+              - --google-chat-webhook-secret-key
+              - ${var.google_chat_webhook_secret_key}
+          environment_key: default
+        - task_key: extract_bhavcopy
+          depends_on:
+            - task_key: download_bhavcopy
+          spark_python_task:
+            python_file: ../databricks_pipeline.py
+            parameters:
+              - --stage
+              - extract
+              - --data-path
+              - /Volumes/stock_project/market_data/pipeline_files
+              - --target-schema
+              - stock_project.market_data
+              - --run-id
+              - "{{job.run_id}}"
+              - --job-run-id
+              - "{{job.id}}"
+              - --date-range-start
+              - ${var.date_range_start}
+              - --date-range-end
+              - ${var.date_range_end}
+              - --google-chat-enabled
+              - ${var.google_chat_enabled}
+              - --google-chat-webhook-secret-scope
+              - ${var.google_chat_webhook_secret_scope}
+              - --google-chat-webhook-secret-key
+              - ${var.google_chat_webhook_secret_key}
+          environment_key: default
+        - task_key: organize_by_exchange
+          depends_on:
+            - task_key: extract_bhavcopy
+          spark_python_task:
+            python_file: ../databricks_pipeline.py
+            parameters:
+              - --stage
+              - organize
+              - --data-path
+              - /Volumes/stock_project/market_data/pipeline_files
+              - --target-schema
+              - stock_project.market_data
+              - --run-id
+              - "{{job.run_id}}"
+              - --job-run-id
+              - "{{job.id}}"
+              - --date-range-start
+              - ${var.date_range_start}
+              - --date-range-end
+              - ${var.date_range_end}
+              - --google-chat-enabled
+              - ${var.google_chat_enabled}
+              - --google-chat-webhook-secret-scope
+              - ${var.google_chat_webhook_secret_scope}
+              - --google-chat-webhook-secret-key
+              - ${var.google_chat_webhook_secret_key}
+          environment_key: default
+        - task_key: extract_schemas
+          depends_on:
+            - task_key: organize_by_exchange
+          spark_python_task:
+            python_file: ../databricks_pipeline.py
+            parameters:
+              - --stage
+              - extract_schema
+              - --data-path
+              - /Volumes/stock_project/market_data/pipeline_files
+              - --target-schema
+              - stock_project.market_data
+              - --run-id
+              - "{{job.run_id}}"
+              - --job-run-id
+              - "{{job.id}}"
+              - --date-range-start
+              - ${var.date_range_start}
+              - --date-range-end
+              - ${var.date_range_end}
+              - --google-chat-enabled
+              - ${var.google_chat_enabled}
+              - --google-chat-webhook-secret-scope
+              - ${var.google_chat_webhook_secret_scope}
+              - --google-chat-webhook-secret-key
+              - ${var.google_chat_webhook_secret_key}
+          environment_key: default
+        - task_key: validate_schemas
+          depends_on:
+            - task_key: extract_schemas
+          spark_python_task:
+            python_file: ../databricks_pipeline.py
+            parameters:
+              - --stage
+              - validate_schema
+              - --data-path
+              - /Volumes/stock_project/market_data/pipeline_files
+              - --target-schema
+              - stock_project.market_data
+              - --run-id
+              - "{{job.run_id}}"
+              - --job-run-id
+              - "{{job.id}}"
+              - --date-range-start
+              - ${var.date_range_start}
+              - --date-range-end
+              - ${var.date_range_end}
+              - --google-chat-enabled
+              - ${var.google_chat_enabled}
+              - --google-chat-webhook-secret-scope
+              - ${var.google_chat_webhook_secret_scope}
+              - --google-chat-webhook-secret-key
+              - ${var.google_chat_webhook_secret_key}
+          environment_key: default
+        - task_key: publish_delta_tables
+          depends_on:
+            - task_key: validate_schemas
+          spark_python_task:
+            python_file: ../databricks_pipeline.py
+            parameters:
+              - --stage
+              - publish
+              - --data-path
+              - /Volumes/stock_project/market_data/pipeline_files
+              - --target-schema
+              - stock_project.market_data
+              - --run-id
+              - "{{job.run_id}}"
+              - --job-run-id
+              - "{{job.id}}"
+              - --date-range-start
+              - ${var.date_range_start}
+              - --date-range-end
+              - ${var.date_range_end}
+              - --google-chat-enabled
+              - ${var.google_chat_enabled}
+              - --google-chat-webhook-secret-scope
+              - ${var.google_chat_webhook_secret_scope}
+              - --google-chat-webhook-secret-key
+              - ${var.google_chat_webhook_secret_key}
+          environment_key: default
+        - task_key: notify_run_summary
+          depends_on:
+            - task_key: download_bhavcopy
+            - task_key: extract_bhavcopy
+            - task_key: organize_by_exchange
+            - task_key: extract_schemas
+            - task_key: validate_schemas
+            - task_key: publish_delta_tables
+          run_if: ALL_DONE
+          spark_python_task:
+            python_file: ../databricks_pipeline.py
+            parameters:
+              - --stage
+              - notify_summary
+              - --data-path
+              - /Volumes/stock_project/market_data/pipeline_files
+              - --target-schema
+              - stock_project.market_data
+              - --run-id
+              - "{{job.run_id}}"
+              - --job-run-id
+              - "{{job.id}}"
+              - --date-range-start
+              - ${var.date_range_start}
+              - --date-range-end
+              - ${var.date_range_end}
+              - --google-chat-enabled
+              - ${var.google_chat_enabled}
+              - --google-chat-webhook-secret-scope
+              - ${var.google_chat_webhook_secret_scope}
+              - --google-chat-webhook-secret-key
+              - ${var.google_chat_webhook_secret_key}
+          environment_key: default
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "2"
