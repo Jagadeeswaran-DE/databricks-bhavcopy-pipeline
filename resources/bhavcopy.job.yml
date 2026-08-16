@@ -4,7 +4,7 @@ resources:
       name: ${bundle.target}-bhavcopy-processing
       description: Download, extract, organize, validate, and publish Samco BhavCopy data.
       schedule:
-        quartz_cron_expression: "0 0 19 * * ?"
+        quartz_cron_expression: "0 0 1,8,19,22 * * ?"
         timezone_id: "Asia/Kolkata"
         pause_status: UNPAUSED
       queue:
@@ -12,7 +12,7 @@ resources:
       tasks:
         - task_key: download_bhavcopy
           spark_python_task:
-            python_file: ../databricks_pipeline.py
+            python_file: /Workspace/Users/jagadeeswaran.vp@sstcloud.com.au/Repos/databricks-bhavcopy-pipeline/databricks_pipeline.py
             parameters:
               - --stage
               - download
@@ -39,7 +39,7 @@ resources:
           depends_on:
             - task_key: download_bhavcopy
           spark_python_task:
-            python_file: ../databricks_pipeline.py
+            python_file: /Workspace/Users/jagadeeswaran.vp@sstcloud.com.au/Repos/databricks-bhavcopy-pipeline/databricks_pipeline.py
             parameters:
               - --stage
               - extract
@@ -66,7 +66,7 @@ resources:
           depends_on:
             - task_key: extract_bhavcopy
           spark_python_task:
-            python_file: ../databricks_pipeline.py
+            python_file: /Workspace/Users/jagadeeswaran.vp@sstcloud.com.au/Repos/databricks-bhavcopy-pipeline/databricks_pipeline.py
             parameters:
               - --stage
               - organize
@@ -93,7 +93,7 @@ resources:
           depends_on:
             - task_key: organize_by_exchange
           spark_python_task:
-            python_file: ../databricks_pipeline.py
+            python_file: /Workspace/Users/jagadeeswaran.vp@sstcloud.com.au/Repos/databricks-bhavcopy-pipeline/databricks_pipeline.py
             parameters:
               - --stage
               - extract_schema
@@ -120,7 +120,7 @@ resources:
           depends_on:
             - task_key: extract_schemas
           spark_python_task:
-            python_file: ../databricks_pipeline.py
+            python_file: /Workspace/Users/jagadeeswaran.vp@sstcloud.com.au/Repos/databricks-bhavcopy-pipeline/databricks_pipeline.py
             parameters:
               - --stage
               - validate_schema
@@ -147,7 +147,7 @@ resources:
           depends_on:
             - task_key: validate_schemas
           spark_python_task:
-            python_file: ../databricks_pipeline.py
+            python_file: /Workspace/Users/jagadeeswaran.vp@sstcloud.com.au/Repos/databricks-bhavcopy-pipeline/databricks_pipeline.py
             parameters:
               - --stage
               - publish
@@ -181,7 +181,7 @@ resources:
             - task_key: archive_processed
           run_if: ALL_DONE
           spark_python_task:
-            python_file: ../databricks_pipeline.py
+            python_file: /Workspace/Users/jagadeeswaran.vp@sstcloud.com.au/Repos/databricks-bhavcopy-pipeline/databricks_pipeline.py
             parameters:
               - --stage
               - notify_summary
@@ -208,7 +208,7 @@ resources:
           depends_on:
             - task_key: publish_delta_tables
           spark_python_task:
-            python_file: ../databricks_pipeline.py
+            python_file: /Workspace/Users/jagadeeswaran.vp@sstcloud.com.au/Repos/databricks-bhavcopy-pipeline/databricks_pipeline.py
             parameters:
               - --stage
               - archive

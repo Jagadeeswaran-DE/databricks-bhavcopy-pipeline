@@ -135,6 +135,7 @@ class DateChunk:
     def output_filename(self) -> str:
         return f"{self.start:%Y%m%d}_{self.end:%Y%m%d}.zip"
 
+
     @property
     def start_iso(self) -> str:
         return self.start.strftime("%Y-%m-%d")
@@ -142,6 +143,10 @@ class DateChunk:
     @property
     def end_iso(self) -> str:
         return self.end.strftime("%Y-%m-%d")
+
+
+class NoDataAvailable(RuntimeError):
+    """Samco has no archive for this requested date range."""
 
 
 @dataclass
@@ -390,6 +395,10 @@ def download_chunk(
         payload = temporary_path.read_bytes()
         if not payload.startswith(b"PK"):
             preview = payload[:200].decode("utf-8", errors="replace")
+            if "no file available" in preview.lower():
+                raise NoDataAvailable(
+                    f"Samco has no BhavCopy archive for {chunk.label}"
+                )
             raise RuntimeError(f"Samco returned a non-ZIP response: {preview}")
         # ``temporary_path`` is on the driver's local /tmp filesystem while
         # ``output_path`` is a Unity Catalog Volume. A direct os.replace across
@@ -435,6 +444,13 @@ def download_chunk_with_retries(
             state.mark_done(chunk)
             state.save(state_path)
             delay_ctrl.on_success()
+            return True
+
+        except NoDataAvailable as exc:
+            # A weekend, exchange holiday, or source range without an archive
+            # must not block the rest of the DAG. Do not mark it complete in
+            # state.json so a later backfill can retry it explicitly.
+            log.warning("SKIP | %s | %s", chunk.label, exc)
             return True
 
         except (subprocess.TimeoutExpired, TimeoutError, ConnectionError, RuntimeError, OSError, ValueError) as exc:
