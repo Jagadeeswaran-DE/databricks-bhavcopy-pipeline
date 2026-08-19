@@ -350,9 +350,14 @@ def main() -> None:
     if args.stage == "extract" and (
         not downloads.is_dir() or not any(downloads.glob("*.zip"))
     ):
-        raise FileNotFoundError(
-            f"No ZIP files found in {downloads}. Upload local downloads first."
+        # Samco may not have published an archive yet (or the date can be a
+        # weekend/exchange holiday). This is an expected no-input condition,
+        # not a pipeline failure. The extractor and downstream stages handle
+        # empty active folders and complete with zero new files.
+        task_progress(
+            f"NO INPUT | extract | no ZIP files in {downloads}; continuing"
         )
+        downloads.mkdir(parents=True, exist_ok=True)
 
     if args.stage == "publish":
         try:

@@ -1,7 +1,7 @@
 resources:
   jobs:
-    bhavcopy_processing:
-      name: ${bundle.target}-bhavcopy-processing
+    stock_data_bhavcopy_pipeline:
+      name: stock-data-bhavcopy-pipeline
       description: Download, extract, organize, validate, and publish Samco BhavCopy data.
       schedule:
         quartz_cron_expression: "0 0 1,8,19,22 * * ?"

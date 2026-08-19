@@ -40,7 +40,8 @@ sync:
 
 targets:
   dev:
-    mode: development
+    mode: production
     default: true
     workspace:
       profile: jagadeeswaran
+      root_path: /Workspace/Users/jagadeeswaran.vp@sstcloud.com.au/.bundle/${bundle.name}/${bundle.target}
